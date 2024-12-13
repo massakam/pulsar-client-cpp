@@ -288,6 +288,22 @@ TEST(AuthPluginTest, testTlsDetectHttpsWithInvalidBroker) {
     ASSERT_EQ(ResultOk, res);
 }
 
+TEST(AuthPluginTest, testTlsDetectClientCertSignedByICA) {
+    ClientConfiguration config = ClientConfiguration();
+    config.setTlsTrustCertsFilePath(caPath);
+    config.setTlsAllowInsecureConnection(false);
+    config.setValidateHostName(true);
+    config.setAuth(pulsar::AuthTls::create(TEST_CONF_DIR + "/chained-client-cert.pem",
+                                           TEST_CONF_DIR + "/chained-client-key.pem"));
+
+    Client client(serviceUrlTls, config);
+    std::string topicName = "persistent://private/auth/testTlsDetectClientCertSignedByICA";
+
+    Producer producer;
+    Result res = client.createProducer(topicName, producer);
+    ASSERT_EQ(ResultOk, res);
+}
+
 namespace testAthenz {
 std::string principalToken;
 void mockZTS(Latch& latch, int port) {
