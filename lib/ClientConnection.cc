@@ -253,11 +253,13 @@ ClientConnection::ClientConnection(const std::string& logicalAddress, const std:
                 throw ResultAuthenticationError;
             }
             ctx.use_private_key_file(tlsPrivateKey, ASIO::ssl::context::pem);
-            ctx.use_certificate_chain_file(tlsCertificates);
+            // ctx.use_certificate_chain_file(tlsCertificates);
+            ctx.use_certificate_file(tlsCertificates, ASIO::ssl::context::pem);
         } else {
             if (file_exists(tlsPrivateKey) && file_exists(tlsCertificates)) {
                 ctx.use_private_key_file(tlsPrivateKey, ASIO::ssl::context::pem);
-                ctx.use_certificate_chain_file(tlsCertificates);
+                // ctx.use_certificate_chain_file(tlsCertificates);
+                ctx.use_certificate_file(tlsCertificates, ASIO::ssl::context::pem);
             }
         }
 
