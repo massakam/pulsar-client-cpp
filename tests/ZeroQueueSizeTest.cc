@@ -332,12 +332,9 @@ TEST(ZeroQueueSizeTest, testReceiveAfterUnloading) {
             std::ostringstream ss;
             ss << contentBase << i;
             Message receivedMsg;
-            Result res = consumer.receive(receivedMsg, 10000);
-            ASSERT_EQ(ResultOk, res);
-            if (res == ResultOk) {
-                ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
-                ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
-            }
+            consumer.receive(receivedMsg);
+            ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+            ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
             ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
         }
     });
