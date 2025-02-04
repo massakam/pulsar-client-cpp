@@ -290,9 +290,15 @@ TEST(ZeroQueueSizeTest, testPauseResumeNoReconnection) {
     client.close();
 }
 
-TEST(ZeroQueueSizeTest, testReceiveAfterUnloading) {
+class ZeroQueueSizeTest : public ::testing::TestWithParam<bool> {};
+
+TEST_P(ZeroQueueSizeTest, testReceptionAfterUnloading) {
     Client client(lookupUrl);
-    std::string topicName = "zero-queue-size-receive-after-unloading";
+    auto isAsync = GetParam();
+    std::string topicName = "zero-queue-size-reception-after-unloading";
+    if (isAsync) {
+        topicName += "-async";
+    }
     std::string subName = "my-sub";
 
     Producer producer;
@@ -317,25 +323,47 @@ TEST(ZeroQueueSizeTest, testReceiveAfterUnloading) {
         ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
         std::ostringstream ss;
         ss << contentBase << i;
-        Message receivedMsg;
-        consumer.receive(receivedMsg);
-        ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
-        ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
-        ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+        if (isAsync) {
+            Latch latch(1);
+            consumer.receiveAsync([&consumer, &ss, &latch](Result res, const Message& receivedMsg) {
+                ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+                ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
+                ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+                latch.countdown();
+            });
+            ASSERT_TRUE(latch.wait(std::chrono::seconds(10)));
+        } else {
+            Message receivedMsg;
+            consumer.receive(receivedMsg);
+            ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+            ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
+            ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+        }
     }
 
-    // Wait for messages to be delivered while performing `receive` in a separate thread.
+    // Wait for messages to be delivered while performing `receive` or `receiveAsync` in a separate thread.
     // At this time, the value of availablePermits should be 1.
     std::thread consumeThread([&consumer] {
         for (int i = totalMessages / 2; i < totalMessages; i++) {
             ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
             std::ostringstream ss;
             ss << contentBase << i;
-            Message receivedMsg;
-            consumer.receive(receivedMsg);
-            ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
-            ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
-            ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+            if (isAsync) {
+                Latch latch(1);
+                consumer.receiveAsync([&consumer, &ss, &latch](Result res, const Message& receivedMsg) {
+                    ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+                    ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
+                    ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+                    latch.countdown();
+                });
+                ASSERT_TRUE(latch.wait(std::chrono::seconds(10)));
+            } else {
+                Message receivedMsg;
+                consumer.receive(receivedMsg);
+                ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+                ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
+                ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+            }
         }
     });
     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -357,3 +385,5 @@ TEST(ZeroQueueSizeTest, testReceiveAfterUnloading) {
     producer.close();
     client.close();
 }
+
+INSTANTIATE_TEST_CASE_P(Pulsar, ZeroQueueSizeTest, ::testing::Values(false, true));
