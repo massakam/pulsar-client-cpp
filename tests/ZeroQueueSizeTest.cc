@@ -343,7 +343,7 @@ TEST_P(ZeroQueueSizeTest, testReceptionAfterUnloading) {
 
     // Wait for messages to be delivered while performing `receive` or `receiveAsync` in a separate thread.
     // At this time, the value of availablePermits should be 1.
-    std::thread consumeThread([&consumer] {
+    std::thread consumeThread([&consumer, &isAsync] {
         for (int i = totalMessages / 2; i < totalMessages; i++) {
             ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
             std::ostringstream ss;
