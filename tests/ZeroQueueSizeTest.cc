@@ -27,6 +27,7 @@
 #include <mutex>
 
 #include "ConsumerTest.h"
+#include "HttpHelper.h"
 #include "lib/Latch.h"
 #include "lib/LogUtils.h"
 
@@ -37,6 +38,7 @@ using namespace pulsar;
 static int totalMessages = 10;
 static int globalCount = 0;
 static std::string lookupUrl = "pulsar://localhost:6650";
+static std::string adminUrl = "http://localhost:8080";
 static std::string contentBase = "msg-";
 
 static void messageListenerFunction(Consumer consumer, const Message& msg, Latch& latch) {
@@ -285,5 +287,76 @@ TEST(ZeroQueueSizeTest, testPauseResumeNoReconnection) {
     }
     lock.unlock();
 
+    client.close();
+}
+
+TEST(ZeroQueueSizeTest, testReceiveAfterUnloading) {
+    Client client(lookupUrl);
+    std::string topicName = "zero-queue-size-receive-after-unloading";
+    std::string subName = "my-sub";
+
+    Producer producer;
+    Result result = client.createProducer(topicName, producer);
+    ASSERT_EQ(ResultOk, result);
+
+    Consumer consumer;
+    ConsumerConfiguration consConfig;
+    consConfig.setReceiverQueueSize(0);
+    result = client.subscribe(topicName, subName, consConfig, consumer);
+    ASSERT_EQ(ResultOk, result);
+
+    for (int i = 0; i < totalMessages / 2; i++) {
+        std::ostringstream ss;
+        ss << contentBase << i;
+        Message msg = MessageBuilder().setContent(ss.str()).build();
+        result = producer.send(msg);
+        ASSERT_EQ(ResultOk, result);
+    }
+
+    for (int i = 0; i < totalMessages / 2; i++) {
+        ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+        std::ostringstream ss;
+        ss << contentBase << i;
+        Message receivedMsg;
+        consumer.receive(receivedMsg);
+        ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+        ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
+        ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+    }
+
+    // Wait for messages to be delivered while performing `receive` in a separate thread.
+    // At this time, the value of availablePermits should be 1.
+    std::thread consumeThread([&consumer] {
+        for (int i = totalMessages / 2; i < totalMessages; i++) {
+            ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+            std::ostringstream ss;
+            ss << contentBase << i;
+            Message receivedMsg;
+            Result res = consumer.receive(receivedMsg, 10000);
+            ASSERT_EQ(ResultOk, res);
+            if (res == ResultOk) {
+                ASSERT_EQ(ResultOk, consumer.acknowledge(receivedMsg));
+                ASSERT_EQ(ss.str(), receivedMsg.getDataAsString());
+            }
+            ASSERT_EQ(0, ConsumerTest::getNumOfMessagesInQueue(consumer));
+        }
+    });
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    int res = makePutRequest(adminUrl + "/admin/v2/persistent/public/default/" + topicName + "/unload", "");
+    ASSERT_TRUE(res / 100 == 2) << "res: " << res;
+
+    for (int i = totalMessages / 2; i < totalMessages; i++) {
+        std::ostringstream ss;
+        ss << contentBase << i;
+        Message msg = MessageBuilder().setContent(ss.str()).build();
+        result = producer.send(msg);
+        ASSERT_EQ(ResultOk, result);
+    }
+
+    consumeThread.join();
+    consumer.unsubscribe();
+    consumer.close();
+    producer.close();
     client.close();
 }
